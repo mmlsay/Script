@@ -1,6 +1,7 @@
 local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 
 -- =========================================================
 -- CONFIGURACIÓN
@@ -8,10 +9,11 @@ local UserInputService = game:GetService("UserInputService")
 local KEY_LINK = "https://work.ink/3539/key-system"
 local VALIDATE_URL = "https://work.ink/_api/v2/token/isValid/"
 local SAVE_FILE = "AutoMobFarm_Key.txt"
-local SINGLE_USE = false      -- true = la key se borra en Work.ink tras validarla (&deleteToken=1)
-local COOLDOWN = 2            -- segundos entre intentos
-local MAX_FAILS = 5           -- fallos antes de bloquear
-local LOCKOUT = 15            -- segundos de bloqueo
+local SINGLE_USE = false          -- true = la key se borra en Work.ink tras validarla
+local AUTO_OPEN_ON_START = true   -- abre la página al ejecutar si no hay key guardada
+local COOLDOWN = 2                -- segundos entre intentos
+local MAX_FAILS = 5               -- fallos antes de bloquear
+local LOCKOUT = 15                -- segundos de bloqueo
 
 -- =========================================================
 -- SCRIPT PRINCIPAL
@@ -24,8 +26,16 @@ local function startMainScript()
 end
 
 -- =========================================================
--- VALIDACIÓN
+-- UTILIDADES
 -- =========================================================
+local function openLink(url)
+    for _, fn in ipairs({openurl, open_url, syn and syn.open_url}) do
+        if type(fn) == "function" and pcall(fn, url) then return true end
+    end
+    local ok = pcall(function() GuiService:OpenBrowserWindow(url) end)
+    return ok
+end
+
 local function httpGet(url)
     local ok, res = pcall(function() return game:HttpGet(url) end)
     if ok and type(res) == "string" and res ~= "" then return res end
@@ -38,7 +48,7 @@ local function httpGet(url)
     return nil
 end
 
--- Devuelve: true/false, motivo ("empty" | "format" | "network" | "invalid")
+-- Devuelve: true, key_limpia  |  false, motivo ("empty" | "format" | "network" | "invalid")
 local function isValidKey(key)
     key = tostring(key or ""):gsub("%s+", "")
     if key == "" then return false, "empty" end
@@ -145,7 +155,7 @@ Instance.new("UICorner", VerifyBtn).CornerRadius = UDim.new(0, 6)
 local GetKeyBtn = Instance.new("TextButton")
 GetKeyBtn.Size = UDim2.new(0.4, 0, 0, 35)
 GetKeyBtn.Position = UDim2.new(0.525, 0, 0.52, 0)
-GetKeyBtn.Text = "Copiar Enlace Key"
+GetKeyBtn.Text = "Obtener Key"
 GetKeyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
 GetKeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 GetKeyBtn.Font = Enum.Font.SourceSans
@@ -156,7 +166,7 @@ Instance.new("UICorner", GetKeyBtn).CornerRadius = UDim.new(0, 6)
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.new(0.85, 0, 0, 30)
 StatusLabel.Position = UDim2.new(0.075, 0, 0.78, 0)
-StatusLabel.Text = "Obtén tu key con el botón de arriba"
+StatusLabel.Text = "Pulsa «Obtener Key» para conseguir tu key"
 StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 StatusLabel.TextSize = 12
 StatusLabel.TextWrapped = true
@@ -240,10 +250,9 @@ local function tryVerify(rawKey, auto)
         task.wait(0.8)
         ScreenGui:Destroy()
         task.spawn(startMainScript)
-        return -- busy se queda en true: ya no hay GUI
+        return -- busy queda en true: ya no hay GUI
     end
 
-    -- Fallo
     if auto then
         clearSavedKey()
         setStatus("Tu key guardada expiró. Consigue una nueva.", "err")
@@ -272,17 +281,34 @@ TextBox.FocusLost:Connect(function(enterPressed)
 end)
 
 GetKeyBtn.MouseButton1Click:Connect(function()
+    local copied = false
     if setclipboard then
-        setclipboard(KEY_LINK)
-        setStatus("¡Enlace copiado! Ábrelo en tu navegador.", "ok")
+        copied = pcall(setclipboard, KEY_LINK)
+    end
+
+    if openLink(KEY_LINK) then
+        setStatus("Abriendo la página de la key...", "ok")
+    elseif copied then
+        setStatus("Enlace copiado. Pégalo en tu navegador.", "ok")
     else
         TextBox.Text = KEY_LINK
         setStatus("Copia el enlace de la caja de texto.", "info")
     end
 end)
 
--- Auto-login con la key guardada
+-- =========================================================
+-- INICIO
+-- =========================================================
 local saved = loadSavedKey()
 if saved then
     task.spawn(function() tryVerify(saved, true) end)
+elseif AUTO_OPEN_ON_START then
+    task.defer(function()
+        if setclipboard then pcall(setclipboard, KEY_LINK) end
+        if openLink(KEY_LINK) then
+            setStatus("Abriendo la página de la key...", "ok")
+        else
+            setStatus("Enlace copiado. Pégalo en tu navegador.", "info")
+        end
+    end)
 end
